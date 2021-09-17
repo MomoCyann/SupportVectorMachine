@@ -3,7 +3,6 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 import random
 
-g = 100
 hx = []
 y = []
 b = 0 # wx+b的b
@@ -33,18 +32,20 @@ def sigmoid(x):
 
 
 # fx表示预测值
-def fx(x):
-    sum = 0
-    for j in range(len(a)):
-        sum+=a[j]*y_train[j]*gram[j][x]
-    return sum+b
+def cal_fx():
+    fx = np.zeros(len(y_train))
+    for i in range(len(a)):
+        for j in range(len(a)):
+            fx[i]+=a[j]*y_train[j]*gram[j][i]
+        fx[i]+=b
+    return fx
 
 
 # ei表示预测值和真实值的差值
 def ei():
     ex = np.zeros([len(y_train)])
     for i in range(len(y_train)):
-        ex[i] = fx(i) - y_train[i]
+        ex[i] = fx[i] - y_train[i]
     return ex
 
 
@@ -67,27 +68,27 @@ def init_a():
     return a
 
 
-def cal_loss_of_kkt():
-    '''
-    loss是衡量差异的量，差异最大的就是最违反KKT条件的a，优先被smo算法选中
-    c是惩罚系数
-    '''
-    loss_temp = np.ones([len(x_train),3])
-    for i in range(len(y_train)):
-        for j in range(len(loss_temp[i])):
-            loss_temp[i][j] = y_train[i] * fx(i) - 1
-            if j == 0:
-                if (a[i]>0 and loss_temp[i][j]<=0) or (a[i]==0 and loss_temp[i][j]>0):
-                    loss_temp[i][j] = 0
-            if j == 1:
-                if ((a[i]==0 or a[i]==c) and loss_temp[i][j]!=0) or (0<a[i]<c and loss_temp[i][j]==0):
-                    loss_temp[i][j] = 0
-            if j == 2:
-                if (a[i]==c and loss_temp[i][j]<0) or (a[i]<c and loss_temp[i][j]>=0):
-                    loss_temp[i][j] = 0
-    loss_temp = loss_temp*loss_temp
-    loss_temp = np.sum(loss_temp,axis=1)
-    return loss_temp
+# def cal_loss_of_kkt():
+#     '''
+#     loss是衡量差异的量，差异最大的就是最违反KKT条件的a，优先被smo算法选中
+#     c是惩罚系数
+#     '''
+#     loss_temp = np.ones([len(x_train),3])
+#     for i in range(len(y_train)):
+#         for j in range(len(loss_temp[i])):
+#             loss_temp[i][j] = y_train[i] * fx(i) - 1
+#             if j == 0:
+#                 if (a[i]>0 and loss_temp[i][j]<=0) or (a[i]==0 and loss_temp[i][j]>0):
+#                     loss_temp[i][j] = 0
+#             if j == 1:
+#                 if ((a[i]==0 or a[i]==c) and loss_temp[i][j]!=0) or (0<a[i]<c and loss_temp[i][j]==0):
+#                     loss_temp[i][j] = 0
+#             if j == 2:
+#                 if (a[i]==c and loss_temp[i][j]<0) or (a[i]<c and loss_temp[i][j]>=0):
+#                     loss_temp[i][j] = 0
+#     loss_temp = loss_temp*loss_temp
+#     loss_temp = np.sum(loss_temp,axis=1)
+#     return loss_temp
 
 
 def cal_gram_matrix():
@@ -100,7 +101,7 @@ def cal_gram_matrix():
 
 def update_a_b():
     global b
-    m = np.argmax(loss)
+    m = tag
     scd = np.random.randint(len(y_train))
     if scd == m:
         scd = np.random.randint(len(y_train))
@@ -120,13 +121,16 @@ def update_a_b():
     a[scd] = a2old + y_train[m] * y_train[scd] * (a1old-a[m])
 
     # update_b
-
     b2new = -ex[scd] - y_train[scd]*gram[scd][scd]*(a[scd]-a2old) - y_train[m]*gram[m][scd]*(a[m]-a1old) + b
     b1new = -ex[m] - y_train[scd]*gram[scd][m]*(a[scd]-a2old) - y_train[m]*gram[m][m]*(a[m]-a2old) + b
     bnew = (b1new + b2new) / 2
+    b = bnew
+    # update_ex
+    fx = cal_fx()
+    ex[m] = fx[m] - y_train[m]
+    ex[scd] = fx[scd] - y_train[scd]
 
-
-    return a,bnew
+    return a,b,ex
 
 
 def cal_theta():
@@ -136,28 +140,25 @@ def cal_theta():
     return theta
 
 
-def judge_end():
-    tag = False
+def judge_end(fx):
     for i in range(len(a)):
         if a[i]==0:
-            if y_train[i]*fx(i)>=1-epi:
+            if y_train[i]*fx[i]>=1-epi:
                 continue
             else:
-                return tag
+                return i
         if 0<a[i]<c:
-            if 1-epi<=y_train[i]*fx(i)<=1+epi:
+            if 1-epi<=y_train[i]*fx[i]<=1+epi:
                 continue
             else:
-                return tag
+                return i
         if a[i]==c:
-            if y_train[i]*fx(i)<=1+epi:
+            if y_train[i]*fx[i]<=1+epi:
                 continue
             else:
-                return tag
-    tag = True
+                return i
+    tag = 999
     return tag
-
-
 
 
 
@@ -167,13 +168,13 @@ if __name__ == "__main__":
     gram = cal_gram_matrix()
     a = init_a()
     b = 0
-    tag = judge_end()
-
-    while tag==False:
+    #ex = ei()
+    tag = 0
+    while tag!=999:
+        fx = cal_fx()
         ex = ei()
-        loss = cal_loss_of_kkt()
-        a,b = update_a_b()
-        tag = judge_end()
+        a,b,ex = update_a_b()
+        tag = judge_end(fx)
 
 
     theta = cal_theta()

@@ -8,6 +8,7 @@ hx = []
 y = []
 b = 0 # wx+b的b
 c = 1 # 惩罚系数
+epi = 1e-8
 
 def load_data():
     # 鸢尾花
@@ -30,11 +31,22 @@ def load_data():
 def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
+
+# fx表示预测值
 def fx(x):
     sum = 0
-    for i in range(len(a)):
+    for j in range(len(a)):
+        sum+=a[j]*y_train[j]*gram[j][x]
+    return sum+b
 
-    return
+
+# ei表示预测值和真实值的差值
+def ei():
+    ex = np.zeros([len(y_train)])
+    for i in range(len(y_train)):
+        ex[i] = fx(i) - y_train[i]
+    return ex
+
 
 def cal_hx_y():
     hx.clear()
@@ -49,9 +61,9 @@ def cal_hx_y():
 
 
 def init_a():
-    a = np.empty([len(x_train)])
-    for i in range(len(x_train)):
-        a[i] = random.uniform(0,c)
+    a = np.zeros([len(x_train)])
+    # for i in range(len(x_train)):
+    #     a[i] = random.uniform(0,c)
     return a
 
 
@@ -86,7 +98,8 @@ def cal_gram_matrix():
     return gram
 
 
-def update_a():
+def update_a_b():
+    global b
     m = np.argmax(loss)
     scd = np.random.randint(len(y_train))
     if scd == m:
@@ -94,18 +107,26 @@ def update_a():
     # save the origin 'a' for a while
     a1old = a[m]
     a2old = a[scd]
-    a[m] = a[m] - y_train[m] * (fx(m)-y_train[m]-fx(scd)+y_train[scd]) / (gram[m][m]-2*gram[m][scd]+gram[scd][scd])
+    a[m] = a[m] - (y_train[m] * (ex[m]-ex[scd])) / (gram[m][m]-2*gram[m][scd]+gram[scd][scd])
     # define the max and the min of 'a'
-    if y_train[m] == -1:
-        u = max(0, a1old - a2old)  # u为下界，v为上界
-        v = min(c, c+a1old-a2old)
-    if y_train[m] == 1:
-        u = max(0, a1old+a2old-c)
-        v = max(c, a1old+a2old)
+    if y_train[m] != y_train[scd]:
+        l = max(0, a1old - a2old)  # l为下界，h为上界
+        h = min(c, c+a1old-a2old)
+    if y_train[m] == y_train[scd]:
+        l = max(0, a1old+a2old-c)
+        h = min(c, a1old+a2old)
     # clip the 'a'
-    a[m] = np.clip(a[m],u,v)
+    a[m] = np.clip(a[m],l,h)
     a[scd] = a2old + y_train[m] * y_train[scd] * (a1old-a[m])
-    return a
+
+    # update_b
+
+    b2new = -ex[scd] - y_train[scd]*gram[scd][scd]*(a[scd]-a2old) - y_train[m]*gram[m][scd]*(a[m]-a1old) + b
+    b1new = -ex[m] - y_train[scd]*gram[scd][m]*(a[scd]-a2old) - y_train[m]*gram[m][m]*(a[m]-a2old) + b
+    bnew = (b1new + b2new) / 2
+
+
+    return a,bnew
 
 
 def cal_theta():
@@ -115,16 +136,29 @@ def cal_theta():
     return theta
 
 
-def cal_b():
-    index1 = np.argwhere(y_train == -1).flatten()
-    index2 = np.argwhere(y_train == 1).flatten()
-    save1=[]
-    save2=[]
-    for i in range(len(index1)):
-        save1.append(np.dot(theta,x_train[index1[i]]))
-    for i in range(len(index2)):
-        save2.append(np.dot(theta,x_train[index2[i]]))
-    return -(max(save1)+min(save2))/2
+def judge_end():
+    tag = False
+    for i in range(len(a)):
+        if a[i]==0:
+            if y_train[i]*fx(i)>=1-epi:
+                continue
+            else:
+                return tag
+        if 0<a[i]<c:
+            if 1-epi<=y_train[i]*fx(i)<=1+epi:
+                continue
+            else:
+                return tag
+        if a[i]==c:
+            if y_train[i]*fx(i)<=1+epi:
+                continue
+            else:
+                return tag
+    tag = True
+    return tag
+
+
+
 
 
 if __name__ == "__main__":
@@ -132,12 +166,18 @@ if __name__ == "__main__":
     theta = np.zeros([len(x_train[0])])
     gram = cal_gram_matrix()
     a = init_a()
-    for i in range(g):
+    b = 0
+    tag = judge_end()
+
+    while tag==False:
+        ex = ei()
         loss = cal_loss_of_kkt()
-        a = update_a()
+        a,b = update_a_b()
+        tag = judge_end()
+
 
     theta = cal_theta()
-    b = cal_b()
+
     print(theta)
     print(b)
 
